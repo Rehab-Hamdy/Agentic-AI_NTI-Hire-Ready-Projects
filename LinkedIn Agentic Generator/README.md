@@ -2,6 +2,18 @@
 
 A multi-agent LinkedIn post generator built on a single small LLM (≤3B parameters, e.g. **Qwen2.5-3B-Instruct**). Instead of one prompt → one output, the system simulates an agentic workflow using plain Python — no external agent framework required.
 
+
+## Demo
+
+**Input form:**
+
+![LinkedIn Post Generator UI - input form](image1.png)
+
+**Generated output:**
+
+![LinkedIn Post Generator UI - final post](image2.png)
+
+
 ## How it works
 
 The same model plays four different roles, each with its own system prompt, orchestrated by a simple Python state machine:
