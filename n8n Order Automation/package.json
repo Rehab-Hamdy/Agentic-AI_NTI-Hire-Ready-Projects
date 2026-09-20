@@ -1,0 +1,10 @@
+{
+  "name": "flavour-house-ordering",
+  "version": "1.0.0",
+  "description": "Restaurant online ordering web interface for Flavour House, integrated with n8n workflow backend.",
+  "private": true,
+  "scripts": {
+    "dev": "npx -y serve@latest -l 3000",
+    "start": "npx -y serve@latest -l 3000"
+  }
+}

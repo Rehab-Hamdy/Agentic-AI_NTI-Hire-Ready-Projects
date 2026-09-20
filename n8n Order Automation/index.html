@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Flavour House — Order your favourite food online. Fresh ingredients, crafted with care, delivered to your door.">
+  <meta name="theme-color" content="#d4881c">
+  <title>Flavour House — Online Ordering</title>
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Outfit:wght@600;700;800&display=swap" rel="stylesheet">
+
+  <!-- Styles -->
+  <link rel="stylesheet" href="css/styles.css">
+
+  <!-- Favicon (emoji-based) -->
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🍽️</text></svg>">
+</head>
+<body>
+
+  <!-- ═══════════════════════════════════════════ -->
+  <!-- HEADER                                      -->
+  <!-- ═══════════════════════════════════════════ -->
+  <div id="app-header"></div>
+
+  <!-- ═══════════════════════════════════════════ -->
+  <!-- MAIN LAYOUT: Menu + Cart Sidebar            -->
+  <!-- ═══════════════════════════════════════════ -->
+  <main class="main-layout" id="app-main">
+    <!-- Menu Section (hero + grid) -->
+    <div id="menu-container"></div>
+
+    <!-- Desktop Cart Sidebar -->
+    <div id="cart-sidebar-container"></div>
+  </main>
+
+  <!-- ═══════════════════════════════════════════ -->
+  <!-- MOBILE CART BUTTON + PANEL                  -->
+  <!-- ═══════════════════════════════════════════ -->
+  <div id="mobile-cart-container"></div>
+
+  <!-- ═══════════════════════════════════════════ -->
+  <!-- ITEM DETAIL MODAL                           -->
+  <!-- ═══════════════════════════════════════════ -->
+  <div id="item-modal-container"></div>
+
+  <!-- ═══════════════════════════════════════════ -->
+  <!-- OVERLAYS: Checkout, Review, Confirmation    -->
+  <!-- ═══════════════════════════════════════════ -->
+  <div id="overlays-container"></div>
+
+  <!-- ═══════════════════════════════════════════ -->
+  <!-- TOAST NOTIFICATIONS                         -->
+  <!-- ═══════════════════════════════════════════ -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <!-- App Entry Point -->
+  <script type="module" src="js/app.js"></script>
+
+</body>
+</html>

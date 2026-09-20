@@ -1,0 +1,403 @@
+{
+  "name": "Flavour House - Order Processing",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## 🍽️ Flavour House — Order Workflow\n\n**Flow:** Website → Webhook → Validate → Save → Notify → Respond\n\n**Setup required:**\n1. **Google Sheets:** Create a spreadsheet with an \"Orders\" sheet.\n   Column headers (Row 1): `order_id | date | customer_name | customer_phone | order_type | address | items_text | total | status`\n   Then open the Google Sheets node, connect credentials, and select your spreadsheet.\n\n2. **Email:** Open the \"Email Kitchen Staff\" node.\n   Set From/To email addresses. Connect your SMTP credentials.\n\n3. **Activate:** Toggle the workflow ON for production use.\n   Use the Test URL while developing.",
+        "height": 400,
+        "width": 560,
+        "color": 3
+      },
+      "id": "b82c47b0-3be8-4c15-9d86-33146a5cb74d",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -896,
+        -16
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "order",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "e32f5f18-75c2-45cb-8662-e121e9007983",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        624,
+        272
+      ],
+      "webhookId": "flavour-house-order"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================\n// FLAVOUR HOUSE - ORDER PROCESSING (n8n Code Node)\n// ALL validation + order processing happens here.\n// The website only collects data — this is the authority.\n// ============================================\n\nconst MENU = [\n  { id: 1, name: \"Classic Burger\", price: 8, available: true },\n  { id: 2, name: \"Margherita Pizza\", price: 12, available: true },\n  { id: 3, name: \"French Fries\", price: 4, available: true },\n  { id: 4, name: \"Chicken Meal\", price: 10, available: true },\n  { id: 5, name: \"Caesar Salad\", price: 7, available: true },\n  { id: 6, name: \"Pasta\", price: 9, available: true }\n];\n\nfunction fail(error, message, field) {\n  return [{ json: { success: false, error, message, field: field || null } }];\n}\n\ntry {\n  // --- Parse incoming webhook data ---\n  const input = $input.first().json;\n  let body = input;\n  if (input && input.body !== undefined) {\n    body = input.body;\n  }\n  if (typeof body === \"string\") {\n    body = JSON.parse(body);\n  }\n\n  // --- Validate request structure ---\n  if (!body || typeof body !== \"object\") {\n    return fail(\"INVALID_ORDER\", \"Invalid request received.\");\n  }\n  if (!body.customer || typeof body.customer !== \"object\") {\n    return fail(\"INVALID_ORDER\", \"Missing customer information.\", \"name\");\n  }\n\n  const { customer, items, order_type } = body;\n\n  // ============================\n  // VALIDATION (all in n8n)\n  // ============================\n\n  // 1. Customer name\n  if (!customer.name || typeof customer.name !== \"string\" || customer.name.trim().length < 2) {\n    return fail(\"VALIDATION_ERROR\", \"Full name is required (minimum 2 characters).\", \"name\");\n  }\n\n  // 2. Phone number (Egyptian mobile: 010, 011, 012, 015 + 8 digits)\n  const cleanPhone = (customer.phone || \"\").toString().replace(/[\\s\\-\\(\\)]/g, \"\");\n  if (!/^01[0125]\\d{8}$/.test(cleanPhone)) {\n    return fail(\"INVALID_PHONE\", \"Invalid phone number. Enter a valid Egyptian mobile (e.g. 01012345678).\", \"phone\");\n  }\n\n  // 3. Order type\n  if (!order_type || ![\"pickup\", \"delivery\"].includes(order_type)) {\n    return fail(\"VALIDATION_ERROR\", \"Please select Pickup or Delivery.\", \"order_type\");\n  }\n\n  // 4. Delivery address\n  if (order_type === \"delivery\" && (!customer.address || customer.address.trim().length < 5)) {\n    return fail(\"VALIDATION_ERROR\", \"Delivery address is required (minimum 5 characters).\", \"address\");\n  }\n\n  // 5. Cart items\n  if (!items || !Array.isArray(items) || items.length === 0) {\n    return fail(\"EMPTY_CART\", \"Your cart is empty. Add items before ordering.\", \"cart\");\n  }\n\n  // ============================\n  // ITEM VALIDATION & TOTAL\n  // ============================\n  let total = 0;\n  const validatedItems = [];\n\n  for (const item of items) {\n    const menuItem = MENU.find(function(m) { return m.id === item.item_id; });\n\n    if (!menuItem) {\n      return fail(\"INVALID_ITEM\", \"Item #\" + item.item_id + \" was not found in our menu.\", \"cart\");\n    }\n\n    if (!menuItem.available) {\n      return fail(\"ITEM_OUT_OF_STOCK\", menuItem.name + \" is currently out of stock.\", \"cart\");\n    }\n\n    const qty = parseInt(item.quantity, 10);\n    if (isNaN(qty) || qty < 1) {\n      return fail(\"VALIDATION_ERROR\", \"Invalid quantity for \" + menuItem.name + \".\", \"cart\");\n    }\n\n    const lineTotal = menuItem.price * qty;\n    total += lineTotal;\n    validatedItems.push({\n      name: menuItem.name,\n      quantity: qty,\n      unit_price: menuItem.price,\n      line_total: lineTotal\n    });\n  }\n\n  // ============================\n  // GENERATE ORDER ID\n  // ============================\n  const now = new Date();\n  function pad(n) { return String(n).padStart(2, \"0\"); }\n  const dateStr = now.getFullYear() + pad(now.getMonth() + 1) + pad(now.getDate());\n  const hex = Math.random().toString(16).substring(2, 6).toUpperCase();\n  const orderId = \"ORD-\" + dateStr + \"-\" + hex;\n\n  // ============================\n  // FORMAT FOR STORAGE & EMAIL\n  // ============================\n  const itemsText = validatedItems.map(function(i) {\n    return i.quantity + \"x \" + i.name + \" ($\" + i.line_total.toFixed(2) + \")\";\n  }).join(\"\\n\");\n\n  const totalQty = validatedItems.reduce(function(s, i) { return s + i.quantity; }, 0);\n  const estimatedTime = Math.min(20 + totalQty * 5, 60);\n\n  const dateFormatted = now.getFullYear() + \"-\" + pad(now.getMonth() + 1) + \"-\" + pad(now.getDate()) + \" \" + pad(now.getHours()) + \":\" + pad(now.getMinutes()) + \":\" + pad(now.getSeconds());\n\n  // Return ALL data needed by Google Sheets, Email, and Frontend\n  return [{\n    json: {\n      success: true,\n      order_id: orderId,\n      total: total,\n      status: \"received\",\n      estimated_time: estimatedTime,\n      customer_name: customer.name.trim(),\n      customer_phone: cleanPhone,\n      order_type: order_type,\n      address: order_type === \"delivery\" ? customer.address.trim() : \"N/A (Pickup)\",\n      items_text: itemsText,\n      date: dateFormatted\n    }\n  }];\n\n} catch (err) {\n  return fail(\"SERVER_ERROR\", \"Internal server error: \" + err.message);\n}\n"
+      },
+      "id": "bf7f3f0f-5e44-451b-826c-e338d50cba6f",
+      "name": "Validate and Process Order",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        864,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "cond-success",
+              "leftValue": "={{ $json.success }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "49aa7af0-a82f-4890-bfb9-e6bbd6f50b07",
+      "name": "Is Order Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1104,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_SPREADSHEET_ID",
+          "mode": "list",
+          "cachedResultName": "Flavour House Orders",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/REPLACE_WITH_SPREADSHEET_ID/edit"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "REPLACE_WITH_SHEET_GID",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/REPLACE_WITH_SPREADSHEET_ID/edit#gid=REPLACE_WITH_SHEET_GID"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "order_id",
+              "displayName": "order_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "date",
+              "displayName": "date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "customer_name",
+              "displayName": "customer_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "customer_phone",
+              "displayName": "customer_phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "order_type",
+              "displayName": "order_type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "address",
+              "displayName": "address",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "items_text",
+              "displayName": "items_text",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "total",
+              "displayName": "total",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "644eb736-9272-449a-bfaa-80a8f0052e0d",
+      "name": "Save to Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1360,
+        144
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fromEmail": "REPLACE_WITH_FROM_EMAIL",
+        "toEmail": "REPLACE_WITH_TO_EMAIL",
+        "subject": "=🍽️ New Order: {{$('Is Order Valid?').item.json.order_id}}",
+        "html": "=<h2>🍔 NEW ORDER</h2>\n\n<p><strong>Order ID:</strong> {{ $('Is Order Valid?').item.json.order_id }}</p>\n\n<p><strong>Items:</strong><br>\n{{ $('Is Order Valid?').item.json.items_text }}</p>\n\n<p><strong>Total:</strong> ${{ $('Is Order Valid?').item.json.total }}</p>\n\n<p><strong>Type:</strong> {{ $('Is Order Valid?').item.json.order_type }}</p>\n\n<p><strong>Name:</strong> {{ $('Is Order Valid?').item.json.customer_name }}</p>\n\n<p><strong>Phone:</strong> {{ $('Is Order Valid?').item.json.customer_phone }}</p>\n\n<p><strong>Address:</strong> {{ $('Is Order Valid?').item.json.address }}</p>\n\n<p><strong>Status:</strong> {{ $('Is Order Valid?').item.json.status }}</p>\n\n<hr>\n\n<p><strong>Estimated Time:</strong> {{ $('Is Order Valid?').item.json.estimated_time }} minutes</p>",
+        "options": {}
+      },
+      "id": "61ac66b0-50ce-47e3-95bc-c21f01f3b773",
+      "name": "Email Kitchen Staff",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        1824,
+        144
+      ],
+      "webhookId": "REPLACE_WITH_WEBHOOK_ID",
+      "credentials": {
+        "smtp": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "SMTP account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: true, order_id: $json.order_id, total: $json.total, status: $json.status, estimated_time: $json.estimated_time }) }}",
+        "options": {
+          "responseCode": 200,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              },
+              {
+                "name": "Access-Control-Allow-Headers",
+                "value": "Content-Type"
+              }
+            ]
+          }
+        }
+      },
+      "id": "50a4a4f9-bc18-4f1b-a3ce-6c449e4ece41",
+      "name": "Respond Success",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        2064,
+        144
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: false, error: $json.error, message: $json.message, field: $json.field }) }}",
+        "options": {
+          "responseCode": 400,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              },
+              {
+                "name": "Access-Control-Allow-Headers",
+                "value": "Content-Type"
+              }
+            ]
+          }
+        }
+      },
+      "id": "08148dbc-edd2-45dc-a928-1d48f3768543",
+      "name": "Respond Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1360,
+        432
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "REPLACE_WITH_TELEGRAM_CHAT_ID",
+        "text": "=NEW ORDER {{ $json.order_id }}\nItems: {{ $json.items_text }}\nTotal: ${{ $json.total }}\nType: {{ $json.order_type }}\nName: {{ $json.customer_name }}\nPhone: {{ $json.customer_phone }}\nAddress: {{ $json.address }}\nStatus: {{ $json.status }}",
+        "replyMarkup": "forceReply",
+        "forceReply": {},
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1584,
+        144
+      ],
+      "id": "d25ac2f0-d914-483b-836d-48713c02bc13",
+      "name": "Send a text message",
+      "webhookId": "",
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "Telegram account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Validate and Process Order",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate and Process Order": {
+      "main": [
+        [
+          {
+            "node": "Is Order Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Order Valid?": {
+      "main": [
+        [
+          {
+            "node": "Save to Google Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save to Google Sheets": {
+      "main": [
+        [
+          {
+            "node": "Send a text message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email Kitchen Staff": {
+      "main": [
+        [
+          {
+            "node": "Respond Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send a text message": {
+      "main": [
+        [
+          {
+            "node": "Email Kitchen Staff",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "REPLACE_WITH_VERSION_ID",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "REPLACE_WITH_INSTANCE_ID"
+  },
+  "nodeGroups": [],
+  "id": "REPLACE_WITH_WORKFLOW_ID",
+  "tags": []
+}
