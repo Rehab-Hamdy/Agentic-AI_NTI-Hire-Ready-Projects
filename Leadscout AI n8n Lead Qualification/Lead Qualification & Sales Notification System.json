@@ -1,0 +1,761 @@
+{
+  "name": "Lead Qualification & Sales Notification System",
+  "nodes": [
+    {
+      "parameters": {
+        "formTitle": "Tell Us About Your Business",
+        "formDescription": "Share your contact details and a brief about your business and needs.",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Name",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Email",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Phone",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Brief",
+              "fieldType": "textarea",
+              "placeholder": "Tell us about your company and what you're looking for: company name, location, team size, annual revenue, budget, hiring plans, the problem you're trying to solve, the product/service you're interested in, timeline/urgency, and your role in the decision.",
+              "requiredField": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "1ffd6bc1-582a-4b64-a4ee-c3c84095d058",
+      "name": "Form Trigger",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "position": [
+        -912,
+        816
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Validate contact info: email format + phone digit count (straight from the form fields)\nconst data = $input.first().json;\n\nconst name = (data['Name'] || '').trim();\nconst email = (data['Email'] || '').trim();\nconst phone = (data['Phone'] || '').trim();\nconst brief = (data['Brief'] || '').trim();\n\nconst emailRegex = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;\nconst isEmailValid = emailRegex.test(email);\n\n// Allow +, spaces, hyphens, parentheses, digits\nconst phoneAllowedChars = /^[0-9+\\-()\\s]+$/;\nconst digitCount = (phone.match(/\\d/g) || []).length;\nconst isPhoneValid = phone.length > 0 && phoneAllowedChars.test(phone) && digitCount >= 7 && digitCount <= 15;\n\nconst isValid = isEmailValid && isPhoneValid;\n\nreturn [{\n  json: {\n    name: name,\n    email: email,\n    phone: phone,\n    brief_text: brief,\n    is_valid: isValid,\n    validation_errors: [\n      !isEmailValid ? 'Invalid email format' : null,\n      !isPhoneValid ? 'Invalid phone number' : null\n    ].filter(Boolean)\n  }\n}];"
+      },
+      "id": "c8334bc5-0823-4a30-b341-ff882e66f7f6",
+      "name": "Validate Contact Info",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -672,
+        816
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-valid-contact",
+              "leftValue": "={{ $json.is_valid }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "fef21686-50b8-4d71-a27d-191ef34641b2",
+      "name": "IF Contact Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -432,
+        816
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Invalid contact info - stop the flow here (no-op terminal node)\nconst data = $input.first().json;\nreturn [{\n  json: {\n    status: 'rejected',\n    reason: 'Invalid contact information',\n    validation_errors: data.validation_errors,\n    original_data: data\n  }\n}];"
+      },
+      "id": "a9cdf64e-727c-4fa8-9fe6-5bda526bd710",
+      "name": "Invalid Contact - Stop",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -208,
+        1024
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "383b23e9-511a-44f3-98ff-67989ee8ada2",
+      "name": "Gemini Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        -208,
+        544
+      ],
+      "credentials": {
+        "googlePalmApi": {
+          "id": null,
+          "name": "",
+          "__aiGatewayManaged": true
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsonSchemaExample": "{\n  \"company_name\": \"\",\n  \"company_location\": \"\",\n  \"team_size\": \"\",\n  \"annual_revenue\": \"\",\n  \"budget\": \"\",\n  \"hiring_plans\": \"\",\n  \"problem\": \"\",\n  \"product_service\": \"\",\n  \"marketing_team_size\": \"\",\n  \"customer_growth_rate\": \"\",\n  \"expected_timeline\": \"\",\n  \"decision_authority\": \"\"\n}"
+      },
+      "id": "80e15bfe-78a8-4289-8883-6067d65f2e98",
+      "name": "Extraction Output Parser",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.2,
+      "position": [
+        -48,
+        544
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are extracting structured lead data from a free-text business brief. Read the text below and pull out each field if it is present. If a field is not mentioned or cannot be determined, return an empty string for it — do NOT guess, invent, or infer values that are not stated or clearly implied.\n\nExtract these fields:\n- company_name\n- company_location\n- team_size\n- annual_revenue\n- budget\n- hiring_plans\n- problem: the problem/challenge they want solved\n- product_service: the product or service they're interested in\n- marketing_team_size\n- customer_growth_rate\n- expected_timeline: urgency/timeline\n- decision_authority: their role/authority in the buying decision\n\nReturn ONLY valid JSON matching the required schema.\n\nBrief:\n{{ $json.brief_text }}",
+        "hasOutputParser": true
+      },
+      "id": "76728a0d-7868-4c25-9804-7424e7e389c0",
+      "name": "Extract Lead Info",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.6,
+      "position": [
+        -272,
+        816
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Merge the extracted business fields back with the validated contact fields\nconst extracted = $input.first().json.output || {};\nconst contact = $('Validate Contact Info').first().json;\n\nreturn [{\n  json: {\n    name: contact.name,\n    email: contact.email,\n    phone: contact.phone,\n    brief: contact.brief_text,\n    company_name: extracted.company_name || '',\n    company_location: extracted.company_location || '',\n    team_size: extracted.team_size || '',\n    annual_revenue: extracted.annual_revenue || '',\n    budget: extracted.budget || '',\n    hiring_plans: extracted.hiring_plans || '',\n    problem: extracted.problem || '',\n    product_service: extracted.product_service || '',\n    marketing_team_size: extracted.marketing_team_size || '',\n    customer_growth_rate: extracted.customer_growth_rate || '',\n    expected_timeline: extracted.expected_timeline || '',\n    decision_authority: extracted.decision_authority || ''\n  }\n}];"
+      },
+      "id": "f5132ac9-7485-4a4a-b025-f02eb3367988",
+      "name": "Merge Extracted Fields",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -16,
+        816
+      ]
+    },
+    {
+      "parameters": {
+        "jsonSchemaExample": "{\n  \"fit_score\": 0,\n  \"intent_score\": 0,\n  \"business_potential_score\": 0,\n  \"budget_score\": 0,\n  \"problem_score\": 0,\n  \"urgency_score\": 0,\n  \"decision_authority_score\": 0,\n  \"total_score\": 0,\n  \"rationale\": \"One concise sentence explaining the main reasons for the score.\"\n}"
+      },
+      "id": "c75a1092-a26c-46e8-947e-17823d463bb9",
+      "name": "Scoring Output Parser",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.2,
+      "position": [
+        304,
+        592
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are a strict B2B lead qualification analyst. Analyze the following lead's business information and stated need. Score ONLY based on the information explicitly provided. Do NOT invent missing information. Do NOT treat missing information as positive evidence. Do NOT judge the lead based on name, gender, age, nationality, grammar, writing quality, or language.\n\nScore the lead using these categories and maximum points:\n1. Product / Service Fit — 0 to 20\n2. Purchase Intent — 0 to 15\n3. Business Potential — 0 to 15\n4. Budget — 0 to 10\n5. Problem / Challenge — 0 to 10\n6. Urgency / Timeline — 0 to 10\n7. Decision-Making Authority — 0 to 10\n\ntotal_score must equal the exact sum of the seven scores above (maximum possible = 90).\n\nReturn ONLY valid JSON matching the required schema. The rationale must be exactly one concise sentence, based only on the information provided.\n\nLead Information:\nName: {{ $json.name }}\nCompany Name: {{ $json.company_name }}\nCompany Location: {{ $json.company_location }}\nTeam Size: {{ $json.team_size }}\nAnnual Revenue: {{ $json.annual_revenue }}\nBudget: {{ $json.budget }}\nHiring Plans: {{ $json.hiring_plans }}\nProblem / Challenge to Solve: {{ $json.problem }}\nProduct or Service of Interest: {{ $json.product_service }}\nMarketing Team Size: {{ $json.marketing_team_size }}\nCustomer Growth Rate: {{ $json.customer_growth_rate }}\nExpected Timeline / Urgency: {{ $json.expected_timeline }}\nDecision-Making Authority: {{ $json.decision_authority }}\nBrief / Additional Information: {{ $json.brief }}",
+        "hasOutputParser": true
+      },
+      "id": "9dd12111-e64e-4795-a443-75b786ac45d0",
+      "name": "Gemini LLM - Score Lead",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.6,
+      "position": [
+        128,
+        816
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Generate a unique Lead ID and deterministic classification\nconst data = $input.first().json;\n\n// The chainLlm node with a structured output parser returns an \"output\" object\nconst scores = data.output ? data.output : data;\n\nconst now = new Date();\nconst y = now.getFullYear();\nconst m = String(now.getMonth() + 1).padStart(2, '0');\nconst d = String(now.getDate()).padStart(2, '0');\nconst datePart = `${y}${m}${d}`;\nconst randomPart = Math.floor(100 + Math.random() * 900); // 3-digit\nconst leadId = `LD-${datePart}-${randomPart}`;\n\nconst totalScore = Number(scores.total_score) || 0;\n\nlet classification;\nif (totalScore >= 72) {\n  classification = 'hot';\n} else if (totalScore >= 45) {\n  classification = 'warm';\n} else {\n  classification = 'cold';\n}\n\n// Merge extracted+validated lead data with scores + lead id\nconst leadData = $('Merge Extracted Fields').first().json;\n\nreturn [{\n  json: {\n    lead_id: leadId,\n    name: leadData.name,\n    email: leadData.email,\n    phone: leadData.phone,\n    company_name: leadData.company_name,\n    company_location: leadData.company_location,\n    team_size: leadData.team_size,\n    annual_revenue: leadData.annual_revenue,\n    budget: leadData.budget,\n    hiring_plans: leadData.hiring_plans,\n    problem: leadData.problem,\n    product_service: leadData.product_service,\n    marketing_team_size: leadData.marketing_team_size,\n    customer_growth_rate: leadData.customer_growth_rate,\n    expected_timeline: leadData.expected_timeline,\n    decision_authority: leadData.decision_authority,\n    brief: leadData.brief,\n    fit_score: Number(scores.fit_score) || 0,\n    intent_score: Number(scores.intent_score) || 0,\n    business_potential_score: Number(scores.business_potential_score) || 0,\n    budget_score: Number(scores.budget_score) || 0,\n    problem_score: Number(scores.problem_score) || 0,\n    urgency_score: Number(scores.urgency_score) || 0,\n    decision_authority_score: Number(scores.decision_authority_score) || 0,\n    total_score: totalScore,\n    classification: classification,\n    rationale: scores.rationale || '',\n    notification_sent: 'No'\n  }\n}];"
+      },
+      "id": "b29246d8-cd7c-4bde-b81a-aa7990da6cc0",
+      "name": "Generate Lead ID & Classify",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        416,
+        816
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "lead_id",
+              "displayName": "lead_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "name",
+              "displayName": "name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "email",
+              "displayName": "email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "company_name",
+              "displayName": "company_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "company_location",
+              "displayName": "company_location",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "team_size",
+              "displayName": "team_size",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "annual_revenue",
+              "displayName": "annual_revenue",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "budget",
+              "displayName": "budget",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "hiring_plans",
+              "displayName": "hiring_plans",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "problem",
+              "displayName": "problem",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "product_service",
+              "displayName": "product_service",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "marketing_team_size",
+              "displayName": "marketing_team_size",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "customer_growth_rate",
+              "displayName": "customer_growth_rate",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "expected_timeline",
+              "displayName": "expected_timeline",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "decision_authority",
+              "displayName": "decision_authority",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "brief",
+              "displayName": "brief",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "fit_score",
+              "displayName": "fit_score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "intent_score",
+              "displayName": "intent_score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "business_potential_score",
+              "displayName": "business_potential_score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "budget_score",
+              "displayName": "budget_score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "problem_score",
+              "displayName": "problem_score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "urgency_score",
+              "displayName": "urgency_score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "decision_authority_score",
+              "displayName": "decision_authority_score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "total_score",
+              "displayName": "total_score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "classification",
+              "displayName": "classification",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "rationale",
+              "displayName": "rationale",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "notification_sent",
+              "displayName": "notification_sent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "29265725-a152-415c-9d09-221da63403f9",
+      "name": "Google Sheets - Save Lead",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        592,
+        816
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "YOUR_GOOGLE_SHEETS_CREDENTIAL_ID",
+          "name": "YOUR_GOOGLE_SHEETS_CREDENTIAL_NAME"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-is-hot",
+              "leftValue": "={{ $json.classification }}",
+              "rightValue": "hot",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "598ad69d-7230-494c-ac69-f533b3862af1",
+      "name": "IF Lead Is Hot?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        832,
+        816
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "YOUR_SALES_REP_EMAIL@example.com",
+        "subject": "=🔥 Hot Lead — {{ $json.name }}",
+        "message": "=A new hot lead has been identified.\n\nLead ID:\n{{ $json.lead_id }}\n\nName:\n{{ $json.name }}\n\nEmail:\n{{ $json.email }}\n\nPhone:\n{{ $json.phone }}\n\nCompany:\n{{ $json.company_name }}\n\nProduct / Service:\n{{ $json.product_service }}\n\nProblem / Challenge:\n{{ $json.problem }}\n\nTimeline:\n{{ $json.expected_timeline }}\n\nTotal Score:\n{{ $json.total_score }}\n\nRationale:\n{{ $json.rationale }}",
+        "options": {}
+      },
+      "id": "0b25e8bd-4f56-4e7d-a5e8-2d0d3cb7a4c1",
+      "name": "Send Email to Sales Rep",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        1072,
+        688
+      ],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "YOUR_GMAIL_CREDENTIAL_ID",
+          "name": "YOUR_GMAIL_CREDENTIAL_NAME"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Warm/Cold lead — no notification, workflow ends here\nreturn [{ json: { status: 'no_notification_needed', classification: $json.classification, lead_id: $json.lead_id } }];"
+      },
+      "id": "cc4e7708-b9b5-48d9-a8e7-cdb8f416b890",
+      "name": "End - No Notification",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1072,
+        976
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Form Trigger": {
+      "main": [
+        [
+          {
+            "node": "Validate Contact Info",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Contact Info": {
+      "main": [
+        [
+          {
+            "node": "IF Contact Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Contact Valid?": {
+      "main": [
+        [
+          {
+            "node": "Extract Lead Info",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Invalid Contact - Stop",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Extract Lead Info",
+            "type": "ai_languageModel",
+            "index": 0
+          },
+          {
+            "node": "Gemini LLM - Score Lead",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extraction Output Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Extract Lead Info",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Lead Info": {
+      "main": [
+        [
+          {
+            "node": "Merge Extracted Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Extracted Fields": {
+      "main": [
+        [
+          {
+            "node": "Gemini LLM - Score Lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Scoring Output Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Gemini LLM - Score Lead",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini LLM - Score Lead": {
+      "main": [
+        [
+          {
+            "node": "Generate Lead ID & Classify",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Lead ID & Classify": {
+      "main": [
+        [
+          {
+            "node": "Google Sheets - Save Lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Sheets - Save Lead": {
+      "main": [
+        [
+          {
+            "node": "IF Lead Is Hot?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Lead Is Hot?": {
+      "main": [
+        [
+          {
+            "node": "Send Email to Sales Rep",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "End - No Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Email to Sales Rep": {
+      "main": [
+        []
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "00000000-0000-0000-0000-000000000000",
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "nodeGroups": [],
+  "tags": []
+}
