@@ -2,6 +2,8 @@
 
 Fine-tune **Mistral-7B-Instruct-v0.2** with **QLoRA** (4-bit NF4 quantization + LoRA adapters) to build a personal AI assistant that answers questions about Rehab's background, education, skills, and projects. The whole pipeline runs on a single free-tier **Tesla T4 (~15.6 GB)** GPU.
 
+![Interface screenshot](interface.png)
+
 ---
 
 ## Highlights
